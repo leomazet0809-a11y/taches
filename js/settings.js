@@ -2,7 +2,9 @@
 import { h, icon, replaceChildren, uid } from './dom.js';
 import { openModal, confirmDialog, segmented } from './ui.js';
 import { TONES } from './defaults.js';
-import { INBOX, folderOf } from './folders.js';
+import { INBOX, folderOf, folderSections } from './folders.js';
+import { ANY_FOLDER, OPS, fieldOps, needsValue, ruleProblems, describeRule } from './rules.js';
+import { toast } from './ui.js';
 
 export const APP_VERSION = '1.0';
 
@@ -338,6 +340,187 @@ function renderFoldersSettings(ctx, rerender, closeSettings, panel) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Règles de tri
+
+const expandedRules = new Set();
+
+function renderRules(ctx, rerender, closeSettings, panel) {
+  const { state, updateSettings, actions } = ctx;
+  const settings = state.settings;
+  const findRule = (s, id) => s.rules.find((r) => r.id === id);
+  const editRule = (id, fn, redraw = true) => {
+    updateSettings((s) => fn(findRule(s, id)));
+    if (redraw) rerender();
+  };
+
+  const fieldOptions = () => [
+    h('option', { value: 'status' }, 'Statut'),
+    settings.tagTypes.map((t) => h('option', { value: 'tag:' + t.id }, t.name)),
+  ];
+  const valueOptions = (field) => {
+    if (field === 'status') return ['todo', 'done'].map((v) => h('option', { value: v }, settings.statuses[v]));
+    const type = settings.tagTypes.find((t) => 'tag:' + t.id === field);
+    return [h('option', { value: '' }, '— Choisir —'), (type ? type.values : []).map((v) => h('option', { value: v.id }, v.label))];
+  };
+
+  function conditionRow(rule, c, i) {
+    const update = (fn) => editRule(rule.id, (r) => fn(r.conditions[i]));
+    return h('li', { class: 'cond-row' },
+      h('select', {
+        class: 'input', 'aria-label': `Condition ${i + 1} : élément`, value: c.field,
+        onchange: (e) => update((x) => {
+          x.field = e.target.value;
+          if (!fieldOps(x.field).includes(x.op)) x.op = 'is';
+          x.value = x.field === 'status' ? 'done' : null;
+        }),
+      }, fieldOptions()),
+      h('select', {
+        class: 'input cond-op', 'aria-label': `Condition ${i + 1} : opérateur`, value: c.op,
+        onchange: (e) => update((x) => { x.op = e.target.value; if (!needsValue(x.op)) x.value = null; }),
+      }, fieldOps(c.field).map((op) => h('option', { value: op }, OPS[op]))),
+      needsValue(c.op)
+        ? h('select', {
+          class: 'input', 'aria-label': `Condition ${i + 1} : valeur`, value: c.value || '',
+          onchange: (e) => update((x) => { x.value = e.target.value || null; }),
+        }, valueOptions(c.field))
+        : h('span', { class: 'cond-novalue' }),
+      h('button', {
+        class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer la condition ${i + 1}`, title: 'Supprimer la condition',
+        onclick: () => editRule(rule.id, (r) => { r.conditions.splice(i, 1); }),
+      }, icon('x')),
+    );
+  }
+
+  function ruleEditor(rule) {
+    const anyFolder = rule.from.includes(ANY_FOLDER);
+    const toggleFrom = (id) => editRule(rule.id, (r) => {
+      if (id === ANY_FOLDER) { r.from = anyFolder ? [] : [ANY_FOLDER]; return; }
+      const set = new Set(r.from.filter((x) => x !== ANY_FOLDER));
+      if (set.has(id)) set.delete(id); else set.add(id);
+      r.from = [...set];
+    });
+    const fromChip = (id, label) => h('button', {
+      class: 'chip tone-accent', type: 'button', 'aria-pressed': String(id === ANY_FOLDER ? anyFolder : !anyFolder && rule.from.includes(id)),
+      onclick: () => toggleFrom(id),
+    }, label);
+
+    return h('div', { class: 'rule-editor' },
+      h('div', { class: 'field' },
+        h('span', { class: 'field-label' }, 'Depuis le(s) dossier(s)'),
+        h('div', { class: 'chips' },
+          fromChip(ANY_FOLDER, 'Tous les dossiers'),
+          settings.folders.map((f) => fromChip(f.id, f.name)),
+        ),
+      ),
+      h('div', { class: 'field' },
+        h('span', { class: 'field-label' }, 'Si'),
+        h('select', {
+          class: 'input match-select', 'aria-label': 'Combinaison des conditions', value: rule.match,
+          onchange: (e) => editRule(rule.id, (r) => { r.match = e.target.value; }),
+        },
+        h('option', { value: 'all' }, 'toutes les conditions sont remplies (ET)'),
+        h('option', { value: 'any' }, 'au moins une condition est remplie (OU)')),
+        rule.conditions.length
+          ? h('ul', { class: 'cond-list' }, rule.conditions.map((c, i) => conditionRow(rule, c, i)))
+          : h('p', { class: 'settings-intro' }, 'Aucune condition.'),
+        h('div', null, h('button', {
+          class: 'btn btn-sm', type: 'button',
+          onclick: () => editRule(rule.id, (r) => {
+            const first = settings.tagTypes[0];
+            r.conditions.push(first ? { field: 'tag:' + first.id, op: 'is', value: null } : { field: 'status', op: 'is', value: 'done' });
+          }),
+        }, icon('plus'), 'Ajouter une condition')),
+      ),
+      h('div', { class: 'field' },
+        h('label', { class: 'field-label', for: 'rule-to-' + rule.id }, 'Alors déplacer vers'),
+        h('select', {
+          class: 'input', id: 'rule-to-' + rule.id, value: rule.to || '',
+          onchange: (e) => editRule(rule.id, (r) => { r.to = e.target.value || null; }),
+        },
+        h('option', { value: '' }, '— Choisir un dossier —'),
+        folderSections(settings).map((sec) => (sec.group
+          ? h('optgroup', { label: sec.group.name }, sec.folders.map((f) => h('option', { value: f.id }, f.name)))
+          : sec.folders.map((f) => h('option', { value: f.id }, f.name))))),
+      ),
+    );
+  }
+
+  function ruleCard(rule, index) {
+    const problems = ruleProblems(settings, rule);
+    const open = expandedRules.has(rule.id);
+    return h('div', { class: 'edit-card rule-card' + (rule.enabled ? '' : ' is-disabled') },
+      h('div', { class: 'edit-card-head' },
+        h('label', { class: 'switch', title: rule.enabled ? 'Règle active' : 'Règle désactivée' },
+          h('input', {
+            type: 'checkbox', checked: rule.enabled, 'aria-label': `Activer la règle ${rule.name}`,
+            onchange: (e) => editRule(rule.id, (r) => { r.enabled = e.target.checked; }),
+          }),
+          h('span', { class: 'switch-track' }),
+        ),
+        nameInput({
+          value: rule.name, label: 'Nom de la règle', className: 'input-strong',
+          onSave: (v) => editRule(rule.id, (r) => { r.name = v; }, false),
+        }),
+        h('div', { class: 'edit-actions' },
+          orderButtons(index, settings.rules.length, (d) => { updateSettings((s) => moveItem(s.rules, index, d)); rerender(); }, `la règle ${rule.name}`),
+          h('button', {
+            class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer la règle ${rule.name}`, title: 'Supprimer la règle',
+            onclick: async () => {
+              const ok = await confirmDialog({ title: 'Supprimer la règle ?', message: `« ${rule.name} » sera supprimée.`, confirmLabel: 'Supprimer', danger: true });
+              if (!ok) return;
+              updateSettings((s) => { s.rules = s.rules.filter((r) => r.id !== rule.id); });
+              rerender();
+            },
+          }, icon('trash')),
+        ),
+      ),
+      h('p', { class: 'rule-summary' }, describeRule(settings, rule)),
+      problems.length > 0 && h('p', { class: 'rule-problem' }, `Règle incomplète (${problems.join(', ')}) : elle ne s'applique pas.`),
+      h('div', null, h('button', {
+        class: 'btn btn-sm btn-ghost', type: 'button', 'aria-expanded': String(open),
+        onclick: () => { if (open) expandedRules.delete(rule.id); else expandedRules.add(rule.id); rerender(); },
+      }, icon(open ? 'chevronDown' : 'edit'), open ? 'Fermer' : 'Modifier')),
+      open && ruleEditor(rule),
+    );
+  }
+
+  return [
+    section('Règles de tri automatique',
+      "Quand une tâche est enregistrée (création, modification, changement de statut), la première règle de la liste qui lui correspond la déplace ; les règles sont ensuite réévaluées depuis son nouveau dossier. Les déplacements manuels (glisser-déposer ou choix du dossier dans la fiche) ne déclenchent pas les règles.",
+      h('div', { class: 'btn-row' },
+        h('button', {
+          class: 'btn btn-primary', type: 'button',
+          onclick: () => {
+            const id = 'r' + Date.now().toString(36);
+            updateSettings((s) => { s.rules.push({ id, name: 'Nouvelle règle', enabled: true, from: [INBOX], match: 'all', conditions: [], to: null }); });
+            expandedRules.add(id);
+            rerender();
+            const cards = panel.querySelectorAll('.rule-card');
+            if (cards.length) cards[cards.length - 1].scrollIntoView({ block: 'nearest' });
+          },
+        }, icon('plus'), 'Nouvelle règle'),
+        h('button', {
+          class: 'btn', type: 'button',
+          onclick: async () => {
+            const ok = await confirmDialog({
+              title: 'Appliquer les règles maintenant ?',
+              message: 'Les règles actives seront appliquées à toutes les tâches, y compris celles déplacées à la main.',
+              confirmLabel: 'Appliquer',
+            });
+            if (!ok) return;
+            const n = actions.applyRulesToAll();
+            toast(n ? `${plural(n, 'tâche déplacée', 'tâches déplacées')}` : 'Aucune tâche à déplacer');
+          },
+        }, icon('zap'), 'Appliquer à toutes les tâches'),
+      ),
+      settings.rules.length
+        ? settings.rules.map(ruleCard)
+        : h('p', { class: 'settings-intro' }, 'Aucune règle.'),
+    ),
+  ];
+}
+
 function renderAccount(ctx, rerender, closeSettings) {
   const { user, backend } = ctx.state;
   if (user.demo) {
@@ -390,6 +573,7 @@ const SECTIONS = [
   { id: 'affichage', label: 'Affichage', icon: 'sun', render: renderDisplay },
   { id: 'tags', label: 'Tags et statuts', icon: 'tag', render: renderTags },
   { id: 'dossiers', label: 'Dossiers', icon: 'folder', render: renderFoldersSettings },
+  { id: 'regles', label: 'Règles de tri', icon: 'zap', render: renderRules },
   { id: 'compte', label: 'Compte', icon: 'user', render: renderAccount },
 ];
 
@@ -410,6 +594,11 @@ export function openSettings(ctx, sectionId = SECTIONS[0].id) {
       'aria-current': s.id === current ? 'page' : null,
       onclick: () => show(s.id),
     }, icon(s.icon), h('span', null, s.label))));
+    // Sur téléphone, les onglets défilent : garder l'onglet actif visible.
+    requestAnimationFrame(() => {
+      const active = nav.querySelector('.is-active');
+      if (active && nav.scrollWidth > nav.clientWidth) active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    });
   }
   function renderPanel() {
     const s = SECTIONS.find((x) => x.id === current);
