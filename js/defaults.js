@@ -2,6 +2,7 @@
 // dans les Paramètres. Les identifiants sont fixes pour rester cohérents
 // d'un appareil à l'autre.
 import { clone } from './dom.js';
+import { sanitizeRules } from './rules.js';
 
 /** Teintes disponibles pour les types de tags. */
 export const TONES = [
@@ -58,6 +59,28 @@ const DEFAULT_FOLDERS = [
   { id: 'archives', name: 'Archives', groupId: 'suivi' },
 ];
 
+// Règles de tri initiales (matrice d'Eisenhower). Une tâche quitte « À classer »
+// quand ses trois tags sont renseignés. '*' = depuis tous les dossiers.
+const tag = (type, op, value = null) => ({ field: 'tag:' + type, op, value });
+const eisenhower = (id, name, importance, urgence, to) => ({
+  id, name, enabled: true, from: ['inbox'], match: 'all', to,
+  conditions: [tag('categorie', 'set'), tag('importance', 'is', importance), tag('urgence', 'is', urgence)],
+});
+const DEFAULT_RULES = [
+  {
+    id: 'r-soldees', name: 'Tâches soldées → Archives', enabled: true, from: ['*'], match: 'all',
+    conditions: [{ field: 'status', op: 'is', value: 'done' }], to: 'archives',
+  },
+  {
+    id: 'r-reactivees', name: 'Tâches remises à faire → À classer', enabled: true, from: ['archives'], match: 'all',
+    conditions: [{ field: 'status', op: 'is', value: 'todo' }], to: 'inbox',
+  },
+  eisenhower('r-maintenant', 'Important et urgent → Faire maintenant', 'important', 'urgent', 'maintenant'),
+  eisenhower('r-planifier', 'Important, non urgent → Planifier', 'important', 'non-urgent', 'planifier'),
+  eisenhower('r-deleguer', 'Non important, urgent → Déléguer', 'non-important', 'urgent', 'deleguer'),
+  eisenhower('r-abandonner', 'Non important, non urgent → Abandonner', 'non-important', 'non-urgent', 'abandonner'),
+];
+
 export function defaultSettings() {
   return {
     schema: 1,
@@ -66,6 +89,7 @@ export function defaultSettings() {
     tagTypes: clone(DEFAULT_TAG_TYPES),
     groups: clone(DEFAULT_GROUPS),
     folders: clone(DEFAULT_FOLDERS),
+    rules: clone(DEFAULT_RULES),
   };
 }
 
@@ -86,7 +110,8 @@ export function normalizeSettings(raw) {
   s.folders = s.folders.filter((f) => f && f.id)
     .map((f) => ({ id: f.id, name: f.name || 'Dossier', groupId: groupIds.has(f.groupId) ? f.groupId : null }));
   if (!s.folders.some((f) => f.id === 'inbox')) s.folders.unshift({ ...DEFAULT_FOLDERS[0] });
-  return s;
+  if (!Array.isArray(s.rules)) s.rules = d.rules;
+  return sanitizeRules(s);
 }
 
 export function statusLabel(settings, status) {

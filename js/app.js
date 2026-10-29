@@ -7,6 +7,7 @@ import { defaultSettings, normalizeSettings, statusLabel, taskTagValue, cleanTag
 import { emptyFilters, cleanFilters, matchesFilters, renderFilterBar } from './filters.js';
 import { INBOX, ALL, folderOf, folderName, renderTiles } from './folders.js';
 import { enableTaskDrag } from './dnd.js';
+import { applyRules } from './rules.js';
 import { describeError } from './errors.js';
 import { toast } from './ui.js';
 import { openTaskDialog } from './task-dialog.js';
@@ -52,8 +53,15 @@ function onWriteError(e) {
 // ---------------------------------------------------------------------------
 // Actions sur les données (chaque modification est enregistrée immédiatement)
 
+/** Dossier où les règles de tri envoient la tâche (null si elle ne bouge pas). */
+function sortedFolder(task) {
+  const { folderId, applied } = applyRules(state.settings, task);
+  return folderId !== folderOf(state.settings, task) ? { folderId, rule: applied[applied.length - 1] } : null;
+}
+
 const actions = {
-  createTask(data) {
+  /** Création. manualFolder : dossier choisi à la main (les règles ne s'appliquent pas). */
+  createTask(data, { manualFolder = false } = {}) {
     const now = Date.now();
     const task = {
       title: (data.title || '').trim(),
@@ -64,24 +72,44 @@ const actions = {
       createdAt: now,
       updatedAt: now,
     };
+    const sorted = !manualFolder && sortedFolder(task);
+    if (sorted) task.folderId = sorted.folderId;
     const id = state.store.newTaskId();
     state.store.createTask(id, task).catch(onWriteError);
-    toast(`Tâche ajoutée dans « ${folderName(state.settings, task.folderId)} »`);
+    toast(`Tâche ajoutée dans « ${folderName(state.settings, task.folderId)} »` + (sorted ? ' (tri automatique)' : ''));
     return id;
   },
 
+  /** Enregistrement de la fiche. Les règles s'appliquent sauf si le dossier a été changé à la main. */
   saveTask(task, patch) {
     if (!Object.keys(patch).length) return;
+    const sorted = !('folderId' in patch) && sortedFolder({ ...task, ...patch });
+    if (sorted) patch.folderId = sorted.folderId;
     state.store.updateTask(task.id, { ...patch, updatedAt: Date.now() }).catch(onWriteError);
-    toast('Tâche enregistrée');
+    toast(sorted ? `Tâche enregistrée et classée dans « ${folderName(state.settings, sorted.folderId)} »` : 'Tâche enregistrée');
   },
 
   toggleStatus(task) {
     const next = task.status === 'done' ? 'todo' : 'done';
-    state.store.updateTask(task.id, { status: next, updatedAt: Date.now() }).catch(onWriteError);
-    toast(`« ${task.title} » : ${statusLabel(state.settings, next)}`, {
-      action: { label: 'Annuler', onClick: () => state.store.updateTask(task.id, { status: task.status, updatedAt: task.updatedAt || Date.now() }).catch(onWriteError) },
+    const patch = { status: next, updatedAt: Date.now() };
+    const sorted = sortedFolder({ ...task, ...patch });
+    if (sorted) patch.folderId = sorted.folderId;
+    state.store.updateTask(task.id, patch).catch(onWriteError);
+    const before = { status: task.status, folderId: folderOf(state.settings, task), updatedAt: task.updatedAt || Date.now() };
+    toast(`« ${task.title} » : ${statusLabel(state.settings, next)}` + (sorted ? ` → ${folderName(state.settings, sorted.folderId)}` : ''), {
+      action: { label: 'Annuler', onClick: () => state.store.updateTask(task.id, before).catch(onWriteError) },
     });
+  },
+
+  /** Applique les règles de tri à toutes les tâches. Renvoie le nombre de tâches déplacées. */
+  applyRulesToAll() {
+    const ops = [];
+    for (const t of state.tasks) {
+      const sorted = sortedFolder(t);
+      if (sorted) ops.push({ type: 'update', id: t.id, patch: { folderId: sorted.folderId, updatedAt: Date.now() } });
+    }
+    actions.batchTasks(ops);
+    return ops.length;
   },
 
   /** Déplacement manuel vers un dossier : seul le dossier change (tags et statut intacts). */

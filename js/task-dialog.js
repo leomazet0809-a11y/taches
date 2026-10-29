@@ -119,7 +119,7 @@ export function openTaskDialog(ctx, task, prefill = {}) {
       titleInput.focus();
       return;
     }
-    if (isNew) actions.createTask({ ...draft, title: draft.title.trim() });
+    if (isNew) actions.createTask({ ...draft, title: draft.title.trim() }, { manualFolder: draft.folderId !== initial.folderId });
     else actions.saveTask(task, changes());
     modal.close();
   }

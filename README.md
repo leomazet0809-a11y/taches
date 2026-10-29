@@ -58,6 +58,32 @@ Dossiers fournis au départ (tout est modifiable dans les Paramètres) :
 - Un déplacement manuel ne change **que** le dossier : les tags et le statut restent inchangés.
   « Annuler » est proposé quelques secondes.
 
+### Tri automatique (règles)
+
+Les règles rangent automatiquement les tâches d'un ou plusieurs dossiers vers un autre dossier,
+selon leurs tags et/ou leur statut.
+
+- Elles s'appliquent **à chaque enregistrement** d'une tâche : création, enregistrement de la fiche,
+  changement de statut (rond à gauche).
+- Elles ne s'appliquent **pas** aux déplacements manuels (glisser-déposer, ou dossier choisi dans la fiche).
+- La **première** règle de la liste qui correspond déplace la tâche ; les règles sont ensuite
+  réévaluées depuis le nouveau dossier (une tâche ne peut pas tourner en boucle).
+
+Règles fournies au départ (modifiables, désactivables) :
+
+| Règle | Depuis | Si | Vers |
+|---|---|---|---|
+| Tâches soldées | tous les dossiers | Statut = Soldé | Archives |
+| Tâches remises à faire | Archives | Statut = À faire | À classer |
+| Important et urgent | À classer | Catégorie renseignée et Important et Urgent | Faire maintenant |
+| Important, non urgent | À classer | Catégorie renseignée et Important et Non urgent | Planifier |
+| Non important, urgent | À classer | Catégorie renseignée et Non important et Urgent | Déléguer |
+| Non important, non urgent | À classer | Catégorie renseignée et Non important et Non urgent | Abandonner |
+
+Ainsi, une tâche reste dans **À classer** tant que ses trois tags ne sont pas renseignés,
+puis rejoint automatiquement la bonne case de la matrice.
+Une tâche soldée par erreur et remise « à faire » repart dans À classer puis est reclassée.
+
 ### Tags
 
 Chaque tâche peut recevoir **une valeur par type de tag**, choisie dans une liste déroulante de sa fiche.
@@ -109,6 +135,14 @@ Les tâches à faire d'abord, les plus récentes en haut ; puis les tâches sold
   - « À classer » peut être renommé mais pas supprimé (cadenas).
   - Supprimer un dossier renvoie ses tâches dans « À classer ».
   - **Groupes de dossiers** : créer, renommer, réordonner, supprimer (les dossiers du groupe sont conservés, sans groupe).
+- **Règles de tri**
+  - **Nouvelle règle** : nom, dossier(s) de départ (ou « Tous les dossiers »), conditions, dossier d'arrivée.
+  - Conditions sur un tag (est / n'est pas / est renseigné / est vide) ou sur le statut (est / n'est pas).
+  - Combinaison : **toutes** les conditions (ET) ou **au moins une** (OU).
+  - Interrupteur pour activer/désactiver une règle ; flèches pour changer l'ordre (la première qui correspond s'applique).
+  - Une règle incomplète (par exemple après la suppression d'un tag ou d'un dossier qu'elle utilisait) est signalée en rouge et ne s'applique pas.
+  - **Appliquer à toutes les tâches** : applique les règles actives à toutes les tâches existantes,
+    y compris celles déplacées à la main.
 - **Compte** : compte Google utilisé et bouton **Se déconnecter**.
 
 ---
@@ -137,7 +171,7 @@ qui n'autorisent chaque utilisateur qu'à lire et écrire ses propres données.
 ### Organisation des données
 
 ```
-users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage, statuts, tags, dossiers…)
+users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage, statuts, tags, dossiers, règles)
 users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par document
 ```
 
@@ -153,6 +187,7 @@ users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par docu
 | `js/filters.js` | Filtres par boutons |
 | `js/folders.js` | Dossiers, groupes et tuiles |
 | `js/dnd.js` | Glisser-déposer (souris et tactile) |
+| `js/rules.js` | Règles de tri automatique |
 | `js/defaults.js` | Valeurs initiales (tags, statuts…) |
 | `js/firebase.js` | Connexion Google et stockage Firestore |
 | `js/local-store.js` | Mode démo (stockage dans le navigateur) |
