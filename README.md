@@ -30,6 +30,30 @@ Application web de gestion de tâches, en français, utilisable sur ordinateur e
 - Si vous fermez la fiche sans enregistrer, l'application vous demande confirmation.
 - **Supprimer** retire la tâche (une confirmation est demandée, puis « Annuler » reste possible quelques secondes).
 
+### Tags
+
+Chaque tâche peut recevoir **une valeur par type de tag**, choisie dans une liste déroulante de sa fiche.
+Types de tags fournis au départ (tout est modifiable dans les Paramètres) :
+
+| Type | Valeurs |
+|---|---|
+| Catégorie | Projet 1, Projet 2, Activité 1 fiche emploi, Activité 2 fiche emploi, Activité 3 fiche emploi |
+| Importance | Important, Non important |
+| Urgence | Urgent, Non urgent |
+
+Les tags d'une tâche s'affichent sous son titre, en couleur.
+
+### Filtrer
+
+Le panneau **Filtres** (cliquer sur son titre pour l'ouvrir ou le fermer) affiche un bouton par valeur de tag et par statut.
+
+- Cliquez sur un bouton pour l'activer (il se colore), recliquez pour le désactiver.
+- Plusieurs valeurs d'un **même** tag : la tâche doit avoir **l'une ou l'autre** (OU).
+- Des tags **différents** (et le statut) : la tâche doit remplir **toutes** les conditions (ET).
+- Exemple : [Projet 1] [Projet 2] + [Urgent] → les tâches urgentes du Projet 1 ou du Projet 2.
+- Le compteur à côté du titre indique « tâches affichées / total ». **Effacer** retire tous les filtres.
+- Les filtres choisis sont mémorisés sur chaque appareil.
+
 ### Statut « À faire » / « Soldé »
 
 - Le rond à gauche d'une tâche bascule son statut entre **À faire** et **Soldé** (un clic).
@@ -45,6 +69,13 @@ Les tâches à faire d'abord, les plus récentes en haut ; puis les tâches sold
   - **Thème** : Automatique (suit le réglage de l'appareil), Clair ou Sombre.
   - **Taille du texte** : Petite, Normale, Grande, Très grande.
   - Ces réglages sont mémorisés avec votre compte.
+- **Tags et statuts**
+  - Renommer les deux statuts (par exemple « Soldé » → « Terminé »).
+  - Renommer un type de tag, changer sa couleur, le monter/descendre, le supprimer.
+  - Ajouter, renommer, réordonner ou supprimer les valeurs de chaque liste.
+  - **Ajouter un type de tag** pour créer une nouvelle liste déroulante.
+  - Les noms sont enregistrés dès que vous appuyez sur Entrée ou quittez le champ.
+  - Supprimer une valeur (ou un type) la retire des tâches concernées, après confirmation.
 - **Compte** : compte Google utilisé et bouton **Se déconnecter**.
 
 ---
@@ -73,7 +104,7 @@ qui n'autorisent chaque utilisateur qu'à lire et écrire ses propres données.
 ### Organisation des données
 
 ```
-users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage…)
+users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage, statuts, tags…)
 users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par document
 ```
 
@@ -86,6 +117,8 @@ users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par docu
 | `js/app.js` | Démarrage, liste des tâches |
 | `js/task-dialog.js` | Fiche d'une tâche |
 | `js/settings.js` | Paramètres |
+| `js/filters.js` | Filtres par boutons |
+| `js/defaults.js` | Valeurs initiales (tags, statuts…) |
 | `js/firebase.js` | Connexion Google et stockage Firestore |
 | `js/local-store.js` | Mode démo (stockage dans le navigateur) |
 | `js/config.js` | Configuration Firebase |

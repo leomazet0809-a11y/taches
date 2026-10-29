@@ -1,6 +1,7 @@
 // Fenêtre des paramètres.
-import { h, icon, replaceChildren } from './dom.js';
+import { h, icon, replaceChildren, uid } from './dom.js';
 import { openModal, confirmDialog, segmented } from './ui.js';
+import { TONES } from './defaults.js';
 
 export const APP_VERSION = '1.0';
 
@@ -38,6 +39,167 @@ function renderDisplay(ctx) {
         onChange: (v) => ctx.updateSettings((s) => { s.prefs.fontSize = v; }),
       }),
       h('p', { class: 'font-preview' }, 'Aperçu : Préparer la réunion de lundi avec l’équipe projet.'),
+    ),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Tags et statuts
+
+/** Champ texte enregistré à la validation (Entrée ou sortie du champ). Vide = valeur précédente. */
+function nameInput({ value, label, onSave, placeholder, className = '' }) {
+  return h('input', {
+    class: 'input ' + className, type: 'text', value, maxlength: 80, 'aria-label': label, placeholder,
+    onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } },
+    onchange: (e) => {
+      const v = e.target.value.trim();
+      if (!v) { e.target.value = value; return; }
+      if (v !== value) { value = v; onSave(v); }
+    },
+  });
+}
+
+function moveItem(list, index, delta) {
+  const j = index + delta;
+  if (j < 0 || j >= list.length) return;
+  [list[index], list[j]] = [list[j], list[index]];
+}
+
+function orderButtons(index, length, onMove, what) {
+  return [
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Monter ${what}`, title: 'Monter', disabled: index === 0, onclick: () => onMove(-1) }, icon('arrowUp')),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Descendre ${what}`, title: 'Descendre', disabled: index === length - 1, onclick: () => onMove(1) }, icon('arrowDown')),
+  ];
+}
+
+function plural(n, one, many) {
+  return `${n} ${n > 1 ? many : one}`;
+}
+
+function renderTags(ctx, rerender, closeSettings, panel) {
+  const { state, updateSettings, actions } = ctx;
+  const settings = state.settings;
+
+  const findType = (s, typeId) => s.tagTypes.find((t) => t.id === typeId);
+
+  async function deleteValue(type, value) {
+    const used = state.tasks.filter((t) => t.tags && t.tags[type.id] === value.id);
+    if (used.length) {
+      const ok = await confirmDialog({
+        title: 'Supprimer cette valeur ?',
+        message: `${plural(used.length, 'tâche utilise', 'tâches utilisent')} « ${value.label} ». Cette valeur leur sera retirée.`,
+        confirmLabel: 'Supprimer', danger: true,
+      });
+      if (!ok) return;
+    }
+    updateSettings((s) => {
+      const t = findType(s, type.id);
+      t.values = t.values.filter((v) => v.id !== value.id);
+    });
+    actions.batchTasks(used.map((t) => {
+      const tags = { ...t.tags };
+      delete tags[type.id];
+      return { type: 'update', id: t.id, patch: { tags } };
+    }));
+    rerender();
+  }
+
+  async function deleteType(type) {
+    const used = state.tasks.filter((t) => t.tags && t.tags[type.id]);
+    const ok = await confirmDialog({
+      title: `Supprimer le type « ${type.name} » ?`,
+      message: `Ses ${plural(type.values.length, 'valeur', 'valeurs')} seront supprimées`
+        + (used.length ? ` et ${plural(used.length, 'tâche perdra', 'tâches perdront')} ce tag.` : '.'),
+      confirmLabel: 'Supprimer', danger: true,
+    });
+    if (!ok) return;
+    updateSettings((s) => { s.tagTypes = s.tagTypes.filter((t) => t.id !== type.id); });
+    actions.batchTasks(used.map((t) => {
+      const tags = { ...t.tags };
+      delete tags[type.id];
+      return { type: 'update', id: t.id, patch: { tags } };
+    }));
+    rerender();
+  }
+
+  function addValue(type, input) {
+    const label = input.value.trim();
+    if (!label) { input.focus(); return; }
+    updateSettings((s) => { findType(s, type.id).values.push({ id: uid('v'), label }); });
+    rerender();
+    const again = panel.querySelector(`[data-add-value="${type.id}"]`);
+    if (again) again.focus();
+  }
+
+  function typeCard(type, index) {
+    const addInput = h('input', {
+      class: 'input', type: 'text', maxlength: 80, placeholder: 'Nouvelle valeur…',
+      'aria-label': `Nouvelle valeur pour ${type.name}`, dataset: { addValue: type.id },
+    });
+    return h('div', { class: 'edit-card' },
+      h('div', { class: 'edit-card-head' },
+        h('span', { class: 'tone-dot tone-' + type.tone }),
+        nameInput({
+          value: type.name, label: 'Nom du type de tag', className: 'input-strong',
+          onSave: (v) => updateSettings((s) => { findType(s, type.id).name = v; }),
+        }),
+        h('div', { class: 'edit-actions' },
+          orderButtons(index, settings.tagTypes.length, (d) => { updateSettings((s) => moveItem(s.tagTypes, index, d)); rerender(); }, `le type ${type.name}`),
+          h('button', { class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer le type ${type.name}`, title: 'Supprimer ce type', onclick: () => deleteType(type) }, icon('trash')),
+        ),
+      ),
+      h('div', { class: 'tone-picker', role: 'radiogroup', 'aria-label': `Couleur de ${type.name}` },
+        TONES.map((tone) => h('label', { class: 'tone-opt', title: tone.label },
+          h('input', {
+            type: 'radio', name: 'tone-' + type.id, value: tone.id, checked: type.tone === tone.id, 'aria-label': tone.label,
+            onchange: () => { updateSettings((s) => { findType(s, type.id).tone = tone.id; }); rerender(); },
+          }),
+          h('span', { class: 'tone-swatch tone-' + tone.id }),
+        )),
+      ),
+      h('ul', { class: 'value-list' },
+        type.values.map((v, i) => h('li', { class: 'value-row' },
+          h('span', { class: 'badge tone-' + type.tone, 'aria-hidden': 'true' }, String(i + 1)),
+          nameInput({
+            value: v.label, label: `Valeur ${i + 1} de ${type.name}`,
+            onSave: (label) => updateSettings((s) => { findType(s, type.id).values.find((x) => x.id === v.id).label = label; }),
+          }),
+          h('div', { class: 'edit-actions' },
+            orderButtons(i, type.values.length, (d) => { updateSettings((s) => moveItem(findType(s, type.id).values, i, d)); rerender(); }, v.label),
+            h('button', { class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer ${v.label}`, title: 'Supprimer cette valeur', onclick: () => deleteValue(type, v) }, icon('trash')),
+          ),
+        )),
+      ),
+      h('form', { class: 'add-row', onsubmit: (e) => { e.preventDefault(); addValue(type, addInput); } },
+        addInput,
+        h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Ajouter'),
+      ),
+    );
+  }
+
+  return [
+    section('Statuts', "Renommez les deux statuts possibles d'une tâche.",
+      h('div', { class: 'status-edit' },
+        h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Statut en cours'),
+          nameInput({ value: settings.statuses.todo, label: 'Nom du statut en cours', onSave: (v) => updateSettings((s) => { s.statuses.todo = v; }) })),
+        h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Statut terminé'),
+          nameInput({ value: settings.statuses.done, label: 'Nom du statut terminé', onSave: (v) => updateSettings((s) => { s.statuses.done = v; }) })),
+      ),
+    ),
+    section('Tags', 'Chaque type de tag est une liste déroulante dans la fiche des tâches. Une tâche reçoit au plus une valeur par type. Les noms sont enregistrés dès que vous validez (Entrée) ou quittez le champ.',
+      settings.tagTypes.map(typeCard),
+      h('button', {
+        class: 'btn', type: 'button',
+        onclick: () => {
+          const used = new Set(settings.tagTypes.map((t) => t.tone));
+          const tone = (TONES.find((t) => !used.has(t.id)) || TONES[TONES.length - 1]).id;
+          const id = uid('tag');
+          updateSettings((s) => { s.tagTypes.push({ id, name: 'Nouveau tag', tone, values: [] }); });
+          rerender();
+          const input = panel.querySelector(`[data-add-value="${id}"]`);
+          if (input) input.closest('.edit-card').querySelector('.input-strong').select();
+        },
+      }, icon('plus'), 'Ajouter un type de tag'),
     ),
   ];
 }
@@ -92,6 +254,7 @@ function about() {
 
 const SECTIONS = [
   { id: 'affichage', label: 'Affichage', icon: 'sun', render: renderDisplay },
+  { id: 'tags', label: 'Tags et statuts', icon: 'tag', render: renderTags },
   { id: 'compte', label: 'Compte', icon: 'user', render: renderAccount },
 ];
 
@@ -115,7 +278,9 @@ export function openSettings(ctx, sectionId = SECTIONS[0].id) {
   }
   function renderPanel() {
     const s = SECTIONS.find((x) => x.id === current);
-    replaceChildren(panel, s.render(ctx, renderPanel, () => modal.close()));
+    const scroll = panel.parentElement ? panel.closest('.modal-body').scrollTop : 0;
+    replaceChildren(panel, s.render(ctx, renderPanel, () => modal.close(), panel));
+    if (panel.parentElement) panel.closest('.modal-body').scrollTop = scroll;
   }
 
   renderNav();

@@ -3,7 +3,8 @@ import { firebaseConfig } from './config.js';
 import { h, icon, googleLogo, replaceChildren, clone } from './dom.js';
 import { applyPrefs } from './prefs.js';
 import { createLocalBackend } from './local-store.js';
-import { defaultSettings, normalizeSettings, statusLabel } from './defaults.js';
+import { defaultSettings, normalizeSettings, statusLabel, taskTagValue, cleanTags } from './defaults.js';
+import { emptyFilters, cleanFilters, matchesFilters, renderFilterBar } from './filters.js';
 import { describeError } from './errors.js';
 import { toast } from './ui.js';
 import { openTaskDialog } from './task-dialog.js';
@@ -24,6 +25,22 @@ const state = {
 
 const regions = {};
 
+// Préférences d'affichage propres à cet appareil (filtres, panneau ouvert…).
+const UI_KEY = 'taches.ui';
+const ui = loadUi();
+
+function loadUi() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(UI_KEY) || '{}') || {}; } catch { /* ignoré */ }
+  return {
+    filters: { ...emptyFilters(), ...(saved.filters || {}) },
+    filtersOpen: typeof saved.filtersOpen === 'boolean' ? saved.filtersOpen : window.innerWidth >= 720,
+  };
+}
+function saveUi() {
+  try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* navigation privée */ }
+}
+
 function onWriteError(e) {
   console.error(e);
   toast(describeError(e), { error: true });
@@ -39,6 +56,7 @@ const actions = {
       title: (data.title || '').trim(),
       description: data.description || '',
       status: data.status === 'done' ? 'done' : 'todo',
+      tags: cleanTags(state.settings, data.tags),
       createdAt: now,
       updatedAt: now,
     };
@@ -60,6 +78,12 @@ const actions = {
     toast(`« ${task.title} » : ${statusLabel(state.settings, next)}`, {
       action: { label: 'Annuler', onClick: () => state.store.updateTask(task.id, { status: task.status, updatedAt: task.updatedAt || Date.now() }).catch(onWriteError) },
     });
+  },
+
+  /** Modifications groupées : [{ type: 'update', id, patch } | { type: 'delete', id }] */
+  batchTasks(ops) {
+    if (!ops.length) return Promise.resolve();
+    return state.store.batch(ops).catch(onWriteError);
   },
 
   deleteTask(task) {
@@ -223,6 +247,7 @@ function accountButton(user) {
 
 function renderShell() {
   const user = state.user;
+  regions.filters = h('div', { class: 'filters-wrap' });
   regions.listHeader = h('div', { class: 'list-header' });
   regions.list = h('div', { class: 'task-list-wrap' });
 
@@ -240,6 +265,7 @@ function renderShell() {
 
   const content = h('main', { class: 'content', id: 'contenu' },
     quickAddForm(),
+    regions.filters,
     regions.listHeader,
     regions.list,
   );
@@ -289,17 +315,43 @@ function sortTasks(list) {
 
 function renderMain() {
   if (!state.user || !regions.list) return;
+  renderFilters();
   renderList();
 }
 
+function currentFilters() {
+  return cleanFilters(state.settings, ui.filters);
+}
+
+function renderFilters() {
+  replaceChildren(regions.filters, renderFilterBar({
+    settings: state.settings,
+    filters: currentFilters(),
+    open: ui.filtersOpen,
+    onChange: (f) => { ui.filters = f; saveUi(); renderMain(); },
+    onToggleOpen: (open) => { ui.filtersOpen = open; saveUi(); renderFilters(); },
+  }));
+}
+
 function renderList() {
-  const tasks = sortTasks(state.tasks);
+  const filters = currentFilters();
+  const all = state.tasks;
+  const tasks = sortTasks(all.filter((t) => matchesFilters(t, filters)));
+  const filtered = tasks.length !== all.length;
   replaceChildren(regions.listHeader,
     h('h1', { class: 'list-title' }, 'Toutes les tâches'),
-    state.tasksReady && h('span', { class: 'count-pill' }, String(tasks.length)),
+    state.tasksReady && h('span', { class: 'count-pill', title: filtered ? `${tasks.length} sur ${all.length}` : null },
+      filtered ? `${tasks.length} / ${all.length}` : String(tasks.length)),
   );
   if (!state.tasksReady) {
     replaceChildren(regions.list, h('div', { class: 'list-loading' }, h('div', { class: 'spinner' })));
+    return;
+  }
+  if (!tasks.length && filtered) {
+    replaceChildren(regions.list, h('div', { class: 'empty' },
+      h('p', { class: 'empty-title' }, 'Aucune tâche ne correspond aux filtres'),
+      h('button', { class: 'btn btn-sm', type: 'button', onclick: () => { ui.filters = emptyFilters(); saveUi(); renderMain(); } }, 'Effacer les filtres'),
+    ));
     return;
   }
   if (!tasks.length) {
@@ -316,6 +368,10 @@ function taskRow(t) {
   const done = t.status === 'done';
   const desc = (t.description || '').trim().split('\n')[0];
   const title = t.title || 'Sans titre';
+  const badges = state.settings.tagTypes
+    .map((type) => [type, taskTagValue(t, type)])
+    .filter(([, v]) => v)
+    .map(([type, v]) => h('span', { class: 'badge tone-' + type.tone, title: type.name }, v.label));
   return h('li', { class: 'task' + (done ? ' is-done' : ''), dataset: { id: t.id } },
     h('button', {
       class: 'task-check', type: 'button', 'aria-pressed': String(done),
@@ -326,6 +382,7 @@ function taskRow(t) {
     h('button', { class: 'task-open', type: 'button', onclick: () => openTaskDialog(ctx, t) },
       h('span', { class: 'task-title' }, title),
       desc && h('span', { class: 'task-desc' }, desc),
+      badges.length > 0 && h('span', { class: 'badges' }, badges),
     ),
   );
 }

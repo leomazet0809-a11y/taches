@@ -1,13 +1,19 @@
-// Fiche d'une tâche : consultation et modification (titre, statut, description).
+// Fiche d'une tâche : consultation et modification (titre, statut, tags, description).
 import { h, icon, formatDate } from './dom.js';
 import { openModal, confirmDialog, segmented } from './ui.js';
-import { statusLabel } from './defaults.js';
+import { statusLabel, cleanTags } from './defaults.js';
 
 function field(label, control, forId) {
   return h('div', { class: 'field' },
     h('label', { class: 'field-label', for: forId || null }, label),
     control,
   );
+}
+
+function sameTags(a, b) {
+  const ka = Object.keys(a).filter((k) => a[k]);
+  const kb = Object.keys(b).filter((k) => b[k]);
+  return ka.length === kb.length && ka.every((k) => a[k] === b[k]);
 }
 
 function autoGrow(el) {
@@ -26,8 +32,9 @@ export function openTaskDialog(ctx, task, prefill = {}) {
     title: isNew ? (prefill.title || '') : (task.title || ''),
     description: isNew ? '' : (task.description || ''),
     status: isNew ? 'todo' : (task.status || 'todo'),
+    tags: cleanTags(settings, isNew ? prefill.tags : task.tags),
   };
-  const draft = { ...initial };
+  const draft = { ...initial, tags: { ...initial.tags } };
 
   const titleInput = h('input', {
     class: 'input input-lg', id: 'task-title', type: 'text', maxlength: 300, autocomplete: 'off',
@@ -42,6 +49,23 @@ export function openTaskDialog(ctx, task, prefill = {}) {
       { value: 'done', label: statusLabel(settings, 'done'), icon: 'checkCircle' },
     ],
     onChange: (v) => { draft.status = v; },
+  });
+
+  // Une liste déroulante par type de tag (une seule valeur par type).
+  const tagFields = settings.tagTypes.map((type) => {
+    const id = 'task-tag-' + type.id;
+    return h('div', { class: 'field' },
+      h('label', { class: 'field-label', for: id }, h('span', { class: 'tone-dot tone-' + type.tone }), type.name),
+      h('select', {
+        class: 'input', id, value: draft.tags[type.id] || '',
+        onchange: (e) => {
+          if (e.target.value) draft.tags[type.id] = e.target.value;
+          else delete draft.tags[type.id];
+        },
+      },
+      h('option', { value: '' }, '— Non renseigné —'),
+      type.values.map((v) => h('option', { value: v.id }, v.label))),
+    );
   });
 
   const desc = h('textarea', {
@@ -60,6 +84,7 @@ export function openTaskDialog(ctx, task, prefill = {}) {
   },
   field('Titre', titleInput, 'task-title'),
   field('Statut', statusCtl),
+  tagFields.length > 0 && h('div', { class: 'tag-fields' }, tagFields),
   field('Description', desc, 'task-desc'),
   !isNew && h('p', { class: 'meta' },
     `Créée le ${formatDate(task.createdAt)}`,
@@ -68,11 +93,12 @@ export function openTaskDialog(ctx, task, prefill = {}) {
   h('button', { type: 'submit', hidden: true, tabindex: '-1' }),
   );
 
-  const dirty = () => Object.keys(initial).some((k) => initial[k] !== draft[k]);
+  const differs = (k) => (k === 'tags' ? !sameTags(initial.tags, draft.tags) : initial[k] !== draft[k]);
+  const dirty = () => Object.keys(initial).some(differs);
 
   function changes() {
     const patch = {};
-    for (const k of Object.keys(initial)) if (initial[k] !== draft[k]) patch[k] = draft[k];
+    for (const k of Object.keys(initial)) if (differs(k)) patch[k] = draft[k];
     if (patch.title != null) patch.title = patch.title.trim();
     return patch;
   }
