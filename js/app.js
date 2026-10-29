@@ -295,9 +295,15 @@ function renderShell() {
   regions.listHeader = h('div', { class: 'list-header' });
   regions.list = h('div', { class: 'task-list-wrap' });
 
+  regions.offline = h('span', {
+    class: 'offline-badge', role: 'status', hidden: navigator.onLine,
+    title: 'Hors connexion : vos modifications seront synchronisées au retour du réseau.',
+  }, icon('wifiOff'), h('span', { class: 'hide-sm' }, 'Hors connexion'));
+
   const header = h('header', { class: 'topbar' },
     h('div', { class: 'brand' }, icon('logo', 'brand-icon'), h('span', null, 'Tâches')),
     h('div', { class: 'topbar-actions' },
+      regions.offline,
       user.demo && h('span', { class: 'demo-badge', title: 'Données enregistrées dans ce navigateur uniquement' }, 'Mode démo'),
       h('button', {
         class: 'icon-btn', type: 'button', 'aria-label': 'Paramètres', title: 'Paramètres',
@@ -491,6 +497,37 @@ function taskRow(t, showFolder) {
         badges),
     ),
   );
+}
+
+// Indicateur hors connexion.
+window.addEventListener('offline', () => {
+  if (regions.offline) regions.offline.hidden = false;
+  if (state.user && !state.user.demo) toast('Hors connexion : vos modifications seront synchronisées au retour du réseau.');
+});
+window.addEventListener('online', () => {
+  if (regions.offline) regions.offline.hidden = true;
+  if (state.user && !state.user.demo) toast('Connexion rétablie');
+});
+
+// Raccourci clavier : « n » pour saisir une nouvelle tâche.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'n' || e.ctrlKey || e.metaKey || e.altKey || !state.user) return;
+  const el = document.activeElement;
+  if (document.querySelector('dialog[open]') || (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)))) return;
+  const input = document.querySelector('.quick-input');
+  if (input) { e.preventDefault(); input.focus(); }
+});
+
+// Installation (application sur l'écran d'accueil) et fonctionnement hors connexion.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  ctx.installPrompt = e;
+});
+window.addEventListener('appinstalled', () => { ctx.installPrompt = null; });
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Service worker non enregistré', e));
+  });
 }
 
 boot();
