@@ -2,6 +2,7 @@
 import { h, icon, formatDate } from './dom.js';
 import { openModal, confirmDialog, segmented } from './ui.js';
 import { statusLabel, cleanTags } from './defaults.js';
+import { folderOf, folderSelect, INBOX } from './folders.js';
 
 function field(label, control, forId) {
   return h('div', { class: 'field' },
@@ -33,6 +34,7 @@ export function openTaskDialog(ctx, task, prefill = {}) {
     description: isNew ? '' : (task.description || ''),
     status: isNew ? 'todo' : (task.status || 'todo'),
     tags: cleanTags(settings, isNew ? prefill.tags : task.tags),
+    folderId: isNew ? INBOX : folderOf(settings, task),
   };
   const draft = { ...initial, tags: { ...initial.tags } };
 
@@ -68,6 +70,11 @@ export function openTaskDialog(ctx, task, prefill = {}) {
     );
   });
 
+  const folderCtl = folderSelect(settings, {
+    id: 'task-folder', value: draft.folderId,
+    onChange: (v) => { draft.folderId = v; },
+  });
+
   const desc = h('textarea', {
     class: 'input textarea', id: 'task-desc', rows: 6,
     placeholder: 'Description détaillée, notes, liens… (texte libre)',
@@ -83,7 +90,10 @@ export function openTaskDialog(ctx, task, prefill = {}) {
     },
   },
   field('Titre', titleInput, 'task-title'),
-  field('Statut', statusCtl),
+  h('div', { class: 'form-row' },
+    field('Statut', statusCtl),
+    field('Dossier', folderCtl, 'task-folder'),
+  ),
   tagFields.length > 0 && h('div', { class: 'tag-fields' }, tagFields),
   field('Description', desc, 'task-desc'),
   !isNew && h('p', { class: 'meta' },

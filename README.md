@@ -21,14 +21,42 @@ Application web de gestion de tâches, en français, utilisable sur ordinateur e
 ### Ajouter une tâche
 
 - **Rapide** : tapez le titre dans « Ajouter une tâche… » puis appuyez sur **Entrée** (ou sur **+**).
-- **Avec détails** : cliquez sur **Détails** (icône crayon) pour saisir directement le titre, le statut et la description.
+- **Avec détails** : cliquez sur **Détails** (icône crayon) pour saisir directement le titre, le statut, les tags, le dossier et la description.
+- Une nouvelle tâche arrive dans le dossier **À classer** (sauf si vous choisissez un autre dossier dans la fiche).
 
 ### Consulter et modifier une tâche
 
-- Cliquez (ou touchez) une tâche pour ouvrir sa **fiche** : titre, statut, description détaillée en texte libre.
+- Cliquez (ou touchez) une tâche pour ouvrir sa **fiche** : titre, statut, dossier, tags, description détaillée en texte libre.
 - **Enregistrer** valide les modifications (raccourci : **Ctrl + Entrée**).
 - Si vous fermez la fiche sans enregistrer, l'application vous demande confirmation.
 - **Supprimer** retire la tâche (une confirmation est demandée, puis « Annuler » reste possible quelques secondes).
+
+### Dossiers
+
+Les dossiers sont affichés sous forme de **tuiles** avec leur nombre de tâches :
+à gauche sur ordinateur, en bandeau défilant en haut sur téléphone.
+
+Dossiers fournis au départ (tout est modifiable dans les Paramètres) :
+
+| Groupe | Dossiers |
+|---|---|
+| — | À classer (reçoit les nouvelles tâches) |
+| Priorités | Faire maintenant, Planifier, Déléguer, Abandonner |
+| Suivi | Attente réponse, Archives |
+
+- Cliquez sur une tuile pour n'afficher que ses tâches ; **Toutes les tâches** affiche tout
+  (le dossier de chaque tâche est alors indiqué sous son titre).
+- La roue dentée à côté de « Dossiers » ouvre directement leur réglage.
+
+### Déplacer une tâche (glisser-déposer)
+
+- **Ordinateur** : cliquez sur une tâche **sans relâcher**, déplacez-la sur une tuile, relâchez.
+- **Téléphone** : **appui long** (environ une demi-seconde) sur une tâche : un panneau
+  « Déposer dans… » s'ouvre en bas de l'écran ; glissez le doigt sur un dossier et relâchez.
+- Relâcher ailleurs (ou appuyer sur Échap) annule le déplacement.
+- Autre possibilité : choisir le **Dossier** dans la fiche de la tâche.
+- Un déplacement manuel ne change **que** le dossier : les tags et le statut restent inchangés.
+  « Annuler » est proposé quelques secondes.
 
 ### Tags
 
@@ -76,6 +104,11 @@ Les tâches à faire d'abord, les plus récentes en haut ; puis les tâches sold
   - **Ajouter un type de tag** pour créer une nouvelle liste déroulante.
   - Les noms sont enregistrés dès que vous appuyez sur Entrée ou quittez le champ.
   - Supprimer une valeur (ou un type) la retire des tâches concernées, après confirmation.
+- **Dossiers**
+  - Renommer, changer de groupe, monter/descendre ou supprimer un dossier ; en ajouter.
+  - « À classer » peut être renommé mais pas supprimé (cadenas).
+  - Supprimer un dossier renvoie ses tâches dans « À classer ».
+  - **Groupes de dossiers** : créer, renommer, réordonner, supprimer (les dossiers du groupe sont conservés, sans groupe).
 - **Compte** : compte Google utilisé et bouton **Se déconnecter**.
 
 ---
@@ -104,7 +137,7 @@ qui n'autorisent chaque utilisateur qu'à lire et écrire ses propres données.
 ### Organisation des données
 
 ```
-users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage, statuts, tags…)
+users/{identifiant de l'utilisateur}/config/settings   → paramètres (affichage, statuts, tags, dossiers…)
 users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par document
 ```
 
@@ -118,6 +151,8 @@ users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par docu
 | `js/task-dialog.js` | Fiche d'une tâche |
 | `js/settings.js` | Paramètres |
 | `js/filters.js` | Filtres par boutons |
+| `js/folders.js` | Dossiers, groupes et tuiles |
+| `js/dnd.js` | Glisser-déposer (souris et tactile) |
 | `js/defaults.js` | Valeurs initiales (tags, statuts…) |
 | `js/firebase.js` | Connexion Google et stockage Firestore |
 | `js/local-store.js` | Mode démo (stockage dans le navigateur) |

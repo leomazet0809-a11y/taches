@@ -42,12 +42,30 @@ const DEFAULT_TAG_TYPES = [
   },
 ];
 
+const DEFAULT_GROUPS = [
+  { id: 'priorites', name: 'Priorités' },
+  { id: 'suivi', name: 'Suivi' },
+];
+
+// « inbox » (À classer) est le dossier par défaut des nouvelles tâches.
+const DEFAULT_FOLDERS = [
+  { id: 'inbox', name: 'À classer', groupId: null },
+  { id: 'maintenant', name: 'Faire maintenant', groupId: 'priorites' },
+  { id: 'planifier', name: 'Planifier', groupId: 'priorites' },
+  { id: 'deleguer', name: 'Déléguer', groupId: 'priorites' },
+  { id: 'abandonner', name: 'Abandonner', groupId: 'priorites' },
+  { id: 'attente', name: 'Attente réponse', groupId: 'suivi' },
+  { id: 'archives', name: 'Archives', groupId: 'suivi' },
+];
+
 export function defaultSettings() {
   return {
     schema: 1,
     prefs: { theme: 'system', fontSize: 'm' },
     statuses: { todo: 'À faire', done: 'Soldé' },
     tagTypes: clone(DEFAULT_TAG_TYPES),
+    groups: clone(DEFAULT_GROUPS),
+    folders: clone(DEFAULT_FOLDERS),
   };
 }
 
@@ -61,6 +79,13 @@ export function normalizeSettings(raw) {
   s.tagTypes = s.tagTypes
     .filter((t) => t && t.id)
     .map((t) => ({ id: t.id, name: t.name || 'Tag', tone: t.tone || 'slate', values: Array.isArray(t.values) ? t.values.filter((v) => v && v.id) : [] }));
+  if (!Array.isArray(s.groups)) s.groups = d.groups;
+  s.groups = s.groups.filter((g) => g && g.id).map((g) => ({ id: g.id, name: g.name || 'Groupe' }));
+  if (!Array.isArray(s.folders)) s.folders = d.folders;
+  const groupIds = new Set(s.groups.map((g) => g.id));
+  s.folders = s.folders.filter((f) => f && f.id)
+    .map((f) => ({ id: f.id, name: f.name || 'Dossier', groupId: groupIds.has(f.groupId) ? f.groupId : null }));
+  if (!s.folders.some((f) => f.id === 'inbox')) s.folders.unshift({ ...DEFAULT_FOLDERS[0] });
   return s;
 }
 
