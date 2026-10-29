@@ -16,7 +16,17 @@ export async function createFirebaseBackend(config) {
   const app = appMod.initializeApp(appConfig);
   const auth = authMod.getAuth(app);
   auth.languageCode = 'fr';
-  const db = fs.getFirestore(app);
+  // Cache local persistant : l'application fonctionne hors connexion et
+  // synchronise les modifications au retour du réseau.
+  let db;
+  try {
+    db = fs.initializeFirestore(app, {
+      localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }),
+    });
+  } catch (e) {
+    console.warn('Cache hors connexion indisponible', e);
+    db = fs.getFirestore(app);
+  }
   if (emulator) {
     // Uniquement pour les tests locaux (émulateurs Firebase).
     authMod.connectAuthEmulator(auth, emulator.auth, { disableWarnings: true });

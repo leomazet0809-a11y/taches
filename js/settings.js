@@ -544,6 +544,7 @@ function renderAccount(ctx, rerender, closeSettings) {
           }, icon('trash'), 'Effacer les données de démo'),
         ),
       ),
+      installSection(ctx, rerender),
       about(),
     ];
   }
@@ -561,8 +562,34 @@ function renderAccount(ctx, rerender, closeSettings) {
       h('p', { class: 'settings-intro' }, 'Vos tâches et vos paramètres sont enregistrés dans votre espace personnel : personne d’autre ne peut les voir.'),
       h('button', { class: 'btn', type: 'button', onclick: () => { closeSettings(); ctx.signOut(); } }, icon('logOut'), 'Se déconnecter'),
     ),
+    installSection(ctx, rerender),
     about(),
   ];
+}
+
+function installSection(ctx, rerender) {
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let content;
+  if (standalone) {
+    content = h('p', { class: 'settings-intro' }, "L'application est installée sur cet appareil.");
+  } else if (ctx.installPrompt) {
+    content = h('button', {
+      class: 'btn btn-primary', type: 'button',
+      onclick: async () => {
+        const prompt = ctx.installPrompt;
+        ctx.installPrompt = null;
+        prompt.prompt();
+        await prompt.userChoice.catch(() => null);
+        rerender();
+      },
+    }, icon('download'), "Installer l'application");
+  } else if (ios) {
+    content = h('p', { class: 'settings-intro' }, "Dans Safari : touchez le bouton Partager, puis « Sur l'écran d'accueil ».");
+  } else {
+    content = h('p', { class: 'settings-intro' }, "Dans le menu du navigateur, choisissez « Installer l'application » ou « Ajouter à l'écran d'accueil ».");
+  }
+  return section("Installer sur l'appareil", "Ajoutez Tâches à l'écran d'accueil de votre téléphone ou à votre ordinateur : elle s'ouvre alors comme une application, même sans réseau (les modifications sont synchronisées au retour de la connexion).", content);
 }
 
 function about() {
@@ -574,7 +601,7 @@ const SECTIONS = [
   { id: 'tags', label: 'Tags et statuts', icon: 'tag', render: renderTags },
   { id: 'dossiers', label: 'Dossiers', icon: 'folder', render: renderFoldersSettings },
   { id: 'regles', label: 'Règles de tri', icon: 'zap', render: renderRules },
-  { id: 'compte', label: 'Compte', icon: 'user', render: renderAccount },
+  { id: 'compte', label: 'Compte et appareil', icon: 'user', render: renderAccount },
 ];
 
 export function openSettings(ctx, sectionId = SECTIONS[0].id) {

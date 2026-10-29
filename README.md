@@ -18,9 +18,26 @@ Application web de gestion de tâches, en français, utilisable sur ordinateur e
 > Tant que l'application n'est pas reliée à Firebase, l'écran d'accueil propose le **mode démo** :
 > tout fonctionne, mais les données restent dans le navigateur de l'appareil utilisé.
 
+### Installer l'application sur le téléphone ou l'ordinateur
+
+L'application peut être ajoutée à l'écran d'accueil : elle s'ouvre alors en plein écran, comme une application.
+Ce n'est pas un programme à installer (.exe) : c'est la même page web.
+
+- **iPhone / iPad (Safari)** : bouton **Partager** › **Sur l'écran d'accueil**.
+- **Android (Chrome)** : menu **⋮** › **Installer l'application** (ou **Ajouter à l'écran d'accueil**).
+- **Ordinateur (Chrome, Edge)** : icône d'installation dans la barre d'adresse,
+  ou **Paramètres › Compte et appareil › Installer l'application**.
+
+### Hors connexion
+
+- L'application s'ouvre et fonctionne même sans réseau (après une première visite connectée).
+- Un badge rouge **Hors connexion** apparaît en haut ; les modifications sont conservées
+  et envoyées automatiquement au retour du réseau.
+
 ### Ajouter une tâche
 
 - **Rapide** : tapez le titre dans « Ajouter une tâche… » puis appuyez sur **Entrée** (ou sur **+**).
+  Sur ordinateur, la touche **N** place directement le curseur dans ce champ.
 - **Avec détails** : cliquez sur **Détails** (icône crayon) pour saisir directement le titre, le statut, les tags, le dossier et la description.
 - Une nouvelle tâche arrive dans le dossier **À classer** (sauf si vous choisissez un autre dossier dans la fiche).
 
@@ -143,7 +160,7 @@ Les tâches à faire d'abord, les plus récentes en haut ; puis les tâches sold
   - Une règle incomplète (par exemple après la suppression d'un tag ou d'un dossier qu'elle utilisait) est signalée en rouge et ne s'applique pas.
   - **Appliquer à toutes les tâches** : applique les règles actives à toutes les tâches existantes,
     y compris celles déplacées à la main.
-- **Compte** : compte Google utilisé et bouton **Se déconnecter**.
+- **Compte et appareil** : compte Google utilisé, bouton **Se déconnecter**, installation de l'application.
 
 ---
 
@@ -193,5 +210,6 @@ users/{identifiant de l'utilisateur}/tasks/{tâche}      → une tâche par docu
 | `js/local-store.js` | Mode démo (stockage dans le navigateur) |
 | `js/config.js` | Configuration Firebase |
 | `firestore.rules` | Règles de sécurité Firestore |
+| `manifest.webmanifest`, `sw.js`, `icons/` | Installation sur l'écran d'accueil et fonctionnement hors connexion |
 
 Aucune installation ni compilation n'est nécessaire : les fichiers sont servis tels quels.
