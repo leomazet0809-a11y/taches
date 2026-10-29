@@ -2,6 +2,7 @@
 import { h, icon, replaceChildren, uid } from './dom.js';
 import { openModal, confirmDialog, segmented } from './ui.js';
 import { TONES } from './defaults.js';
+import { INBOX, folderOf } from './folders.js';
 
 export const APP_VERSION = '1.0';
 
@@ -204,6 +205,139 @@ function renderTags(ctx, rerender, closeSettings, panel) {
   ];
 }
 
+// ---------------------------------------------------------------------------
+// Dossiers et groupes
+
+/** Déplace un dossier d'un cran parmi les dossiers du même groupe. */
+function moveFolder(folders, folderId, delta) {
+  const i = folders.findIndex((f) => f.id === folderId);
+  const groupId = folders[i].groupId || null;
+  let j = i + delta;
+  while (j >= 0 && j < folders.length && (folders[j].groupId || null) !== groupId) j += delta;
+  if (j < 0 || j >= folders.length) return;
+  [folders[i], folders[j]] = [folders[j], folders[i]];
+}
+
+function renderFoldersSettings(ctx, rerender, closeSettings, panel) {
+  const { state, updateSettings, actions } = ctx;
+  const settings = state.settings;
+  const groupOptions = (value) => [
+    h('option', { value: '' }, 'Sans groupe'),
+    settings.groups.map((g) => h('option', { value: g.id, selected: g.id === value }, g.name)),
+  ];
+
+  async function deleteFolder(folder) {
+    const used = state.tasks.filter((t) => folderOf(settings, t) === folder.id);
+    const inboxName = settings.folders.find((f) => f.id === INBOX).name;
+    const ok = await confirmDialog({
+      title: `Supprimer le dossier « ${folder.name} » ?`,
+      message: used.length ? `${plural(used.length, 'tâche sera déplacée', 'tâches seront déplacées')} dans « ${inboxName} ».` : 'Le dossier est vide.',
+      confirmLabel: 'Supprimer', danger: true,
+    });
+    if (!ok) return;
+    updateSettings((s) => { s.folders = s.folders.filter((f) => f.id !== folder.id); });
+    actions.batchTasks(used.map((t) => ({ type: 'update', id: t.id, patch: { folderId: INBOX } })));
+    rerender();
+  }
+
+  async function deleteGroup(group) {
+    const count = settings.folders.filter((f) => f.groupId === group.id).length;
+    const ok = await confirmDialog({
+      title: `Supprimer le groupe « ${group.name} » ?`,
+      message: count ? `Ses ${plural(count, 'dossier est conservé', 'dossiers sont conservés')} (sans groupe), ainsi que leurs tâches.` : 'Le groupe est vide.',
+      confirmLabel: 'Supprimer', danger: true,
+    });
+    if (!ok) return;
+    updateSettings((s) => {
+      s.groups = s.groups.filter((g) => g.id !== group.id);
+      s.folders.forEach((f) => { if (f.groupId === group.id) f.groupId = null; });
+    });
+    rerender();
+  }
+
+  const folderRow = (f) => {
+    const same = settings.folders.filter((x) => (x.groupId || null) === (f.groupId || null));
+    const pos = same.indexOf(f);
+    return h('li', { class: 'value-row folder-row' },
+      icon(f.id === INBOX ? 'inbox' : 'folder', 'row-icon'),
+      nameInput({
+        value: f.name, label: `Nom du dossier ${f.name}`,
+        onSave: (v) => updateSettings((s) => { s.folders.find((x) => x.id === f.id).name = v; }),
+      }),
+      h('select', {
+        class: 'input folder-group-select', 'aria-label': `Groupe du dossier ${f.name}`,
+        onchange: (e) => { updateSettings((s) => { s.folders.find((x) => x.id === f.id).groupId = e.target.value || null; }); rerender(); },
+      }, groupOptions(f.groupId)),
+      h('div', { class: 'edit-actions' },
+        orderButtons(pos, same.length, (d) => { updateSettings((s) => moveFolder(s.folders, f.id, d)); rerender(); }, f.name),
+        f.id === INBOX
+          ? h('span', { class: 'icon-btn', title: 'Dossier par défaut des nouvelles tâches : il ne peut pas être supprimé' }, icon('lock'))
+          : h('button', { class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer le dossier ${f.name}`, title: 'Supprimer ce dossier', onclick: () => deleteFolder(f) }, icon('trash')),
+      ),
+    );
+  };
+
+  const sectionsList = [{ group: null }, ...settings.groups.map((g) => ({ group: g }))];
+
+  const newFolderName = h('input', { class: 'input', type: 'text', maxlength: 80, placeholder: 'Nom du nouveau dossier…', 'aria-label': 'Nom du nouveau dossier', dataset: { addFolder: '1' } });
+  const newFolderGroup = h('select', { class: 'input folder-group-select', 'aria-label': 'Groupe du nouveau dossier' }, groupOptions(null));
+  const newGroupName = h('input', { class: 'input', type: 'text', maxlength: 80, placeholder: 'Nom du nouveau groupe…', 'aria-label': 'Nom du nouveau groupe', dataset: { addGroup: '1' } });
+
+  return [
+    section('Dossiers', `Les dossiers apparaissent sous forme de tuiles. « ${settings.folders.find((f) => f.id === INBOX).name} » reçoit les nouvelles tâches : il peut être renommé mais pas supprimé.`,
+      sectionsList.map(({ group }) => {
+        const list = settings.folders.filter((f) => (f.groupId || null) === (group ? group.id : null));
+        return h('div', { class: 'edit-card' },
+          h('div', { class: 'edit-card-title' }, group ? group.name : 'Sans groupe'),
+          list.length
+            ? h('ul', { class: 'value-list' }, list.map(folderRow))
+            : h('p', { class: 'settings-intro' }, 'Aucun dossier.'),
+        );
+      }),
+      h('form', {
+        class: 'add-row add-folder',
+        onsubmit: (e) => {
+          e.preventDefault();
+          const name = newFolderName.value.trim();
+          if (!name) { newFolderName.focus(); return; }
+          updateSettings((s) => { s.folders.push({ id: uid('f'), name, groupId: newFolderGroup.value || null }); });
+          rerender();
+          const again = panel.querySelector('[data-add-folder]');
+          if (again) again.focus();
+        },
+      }, newFolderName, newFolderGroup, h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Ajouter le dossier')),
+    ),
+    section('Groupes de dossiers', 'Un groupe rassemble plusieurs tuiles sous un même titre.',
+      h('div', { class: 'edit-card' },
+        settings.groups.length
+          ? h('ul', { class: 'value-list' }, settings.groups.map((g, i) => h('li', { class: 'value-row' },
+            nameInput({
+              value: g.name, label: `Nom du groupe ${g.name}`,
+              onSave: (v) => { updateSettings((s) => { s.groups.find((x) => x.id === g.id).name = v; }); rerender(); },
+            }),
+            h('div', { class: 'edit-actions' },
+              orderButtons(i, settings.groups.length, (d) => { updateSettings((s) => moveItem(s.groups, i, d)); rerender(); }, `le groupe ${g.name}`),
+              h('button', { class: 'icon-btn btn-danger-text', type: 'button', 'aria-label': `Supprimer le groupe ${g.name}`, title: 'Supprimer ce groupe', onclick: () => deleteGroup(g) }, icon('trash')),
+            ),
+          )))
+          : h('p', { class: 'settings-intro' }, 'Aucun groupe.'),
+        h('form', {
+          class: 'add-row',
+          onsubmit: (e) => {
+            e.preventDefault();
+            const name = newGroupName.value.trim();
+            if (!name) { newGroupName.focus(); return; }
+            updateSettings((s) => { s.groups.push({ id: uid('g'), name }); });
+            rerender();
+            const again = panel.querySelector('[data-add-group]');
+            if (again) again.focus();
+          },
+        }, newGroupName, h('button', { class: 'btn', type: 'submit' }, icon('plus'), 'Ajouter le groupe')),
+      ),
+    ),
+  ];
+}
+
 function renderAccount(ctx, rerender, closeSettings) {
   const { user, backend } = ctx.state;
   if (user.demo) {
@@ -255,6 +389,7 @@ function about() {
 const SECTIONS = [
   { id: 'affichage', label: 'Affichage', icon: 'sun', render: renderDisplay },
   { id: 'tags', label: 'Tags et statuts', icon: 'tag', render: renderTags },
+  { id: 'dossiers', label: 'Dossiers', icon: 'folder', render: renderFoldersSettings },
   { id: 'compte', label: 'Compte', icon: 'user', render: renderAccount },
 ];
 
@@ -278,9 +413,9 @@ export function openSettings(ctx, sectionId = SECTIONS[0].id) {
   }
   function renderPanel() {
     const s = SECTIONS.find((x) => x.id === current);
-    const scroll = panel.parentElement ? panel.closest('.modal-body').scrollTop : 0;
+    const scroll = panel.scrollTop;
     replaceChildren(panel, s.render(ctx, renderPanel, () => modal.close(), panel));
-    if (panel.parentElement) panel.closest('.modal-body').scrollTop = scroll;
+    panel.scrollTop = scroll;
   }
 
   renderNav();

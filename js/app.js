@@ -5,6 +5,8 @@ import { applyPrefs } from './prefs.js';
 import { createLocalBackend } from './local-store.js';
 import { defaultSettings, normalizeSettings, statusLabel, taskTagValue, cleanTags } from './defaults.js';
 import { emptyFilters, cleanFilters, matchesFilters, renderFilterBar } from './filters.js';
+import { INBOX, ALL, folderOf, folderName, renderTiles } from './folders.js';
+import { enableTaskDrag } from './dnd.js';
 import { describeError } from './errors.js';
 import { toast } from './ui.js';
 import { openTaskDialog } from './task-dialog.js';
@@ -35,6 +37,7 @@ function loadUi() {
   return {
     filters: { ...emptyFilters(), ...(saved.filters || {}) },
     filtersOpen: typeof saved.filtersOpen === 'boolean' ? saved.filtersOpen : window.innerWidth >= 720,
+    view: typeof saved.view === 'string' ? saved.view : ALL,
   };
 }
 function saveUi() {
@@ -57,12 +60,13 @@ const actions = {
       description: data.description || '',
       status: data.status === 'done' ? 'done' : 'todo',
       tags: cleanTags(state.settings, data.tags),
+      folderId: data.folderId || INBOX,
       createdAt: now,
       updatedAt: now,
     };
     const id = state.store.newTaskId();
     state.store.createTask(id, task).catch(onWriteError);
-    toast('Tâche ajoutée');
+    toast(`Tâche ajoutée dans « ${folderName(state.settings, task.folderId)} »`);
     return id;
   },
 
@@ -77,6 +81,16 @@ const actions = {
     state.store.updateTask(task.id, { status: next, updatedAt: Date.now() }).catch(onWriteError);
     toast(`« ${task.title} » : ${statusLabel(state.settings, next)}`, {
       action: { label: 'Annuler', onClick: () => state.store.updateTask(task.id, { status: task.status, updatedAt: task.updatedAt || Date.now() }).catch(onWriteError) },
+    });
+  },
+
+  /** Déplacement manuel vers un dossier : seul le dossier change (tags et statut intacts). */
+  moveTask(task, folderId) {
+    const from = folderOf(state.settings, task);
+    if (from === folderId) return;
+    state.store.updateTask(task.id, { folderId, updatedAt: Date.now() }).catch(onWriteError);
+    toast(`Déplacée dans « ${folderName(state.settings, folderId)} »`, {
+      action: { label: 'Annuler', onClick: () => state.store.updateTask(task.id, { folderId: from }).catch(onWriteError) },
     });
   },
 
@@ -110,6 +124,7 @@ const ctx = {
   actions,
   updateSettings,
   signOut: () => state.backend.signOut(),
+  showFolder: (id) => selectView(id),
 };
 
 // ---------------------------------------------------------------------------
@@ -247,6 +262,7 @@ function accountButton(user) {
 
 function renderShell() {
   const user = state.user;
+  regions.folders = h('div', { class: 'folders-tiles' });
   regions.filters = h('div', { class: 'filters-wrap' });
   regions.listHeader = h('div', { class: 'list-header' });
   regions.list = h('div', { class: 'task-list-wrap' });
@@ -270,7 +286,27 @@ function renderShell() {
     regions.list,
   );
 
-  replaceChildren(root, h('div', { class: 'app-shell' }, header, h('div', { class: 'layout' }, content)));
+  const sidebar = h('aside', { class: 'folders', 'aria-label': 'Dossiers' },
+    h('div', { class: 'folders-head' },
+      h('h2', { class: 'folders-title' }, 'Dossiers'),
+      h('button', {
+        class: 'icon-btn', type: 'button', 'aria-label': 'Gérer les dossiers', title: 'Gérer les dossiers et groupes',
+        onclick: () => openSettings(ctx, 'dossiers'),
+      }, icon('settings')),
+    ),
+    regions.folders,
+  );
+
+  replaceChildren(root, h('div', { class: 'app-shell' }, header, h('div', { class: 'layout layout-folders' }, sidebar, content)));
+
+  enableTaskDrag(regions.list, {
+    onStart: () => showDropSheet(),
+    onEnd: () => hideDropSheet(),
+    onDrop: (id, folderId) => {
+      const task = state.tasks.find((t) => t.id === id);
+      if (task) actions.moveTask(task, folderId);
+    },
+  });
   renderMain();
 }
 
@@ -315,8 +351,46 @@ function sortTasks(list) {
 
 function renderMain() {
   if (!state.user || !regions.list) return;
+  renderFolders();
   renderFilters();
   renderList();
+}
+
+function currentView() {
+  return ui.view === ALL || state.settings.folders.some((f) => f.id === ui.view) ? ui.view : ALL;
+}
+
+function selectView(id) {
+  ui.view = id;
+  saveUi();
+  renderMain();
+  if (narrow.matches) regions.listHeader.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function renderFolders() {
+  replaceChildren(regions.folders, renderTiles({
+    settings: state.settings, tasks: state.tasks, view: currentView(), onSelect: selectView,
+  }));
+}
+
+// Sur écran étroit, les tuiles ne sont pas toujours visibles : pendant un glisser,
+// un panneau de dépôt s'ouvre en bas de l'écran.
+const narrow = window.matchMedia('(max-width: 59.99rem)');
+let dropSheet = null;
+
+function showDropSheet() {
+  if (!narrow.matches) return;
+  dropSheet = h('div', { class: 'drop-sheet', role: 'dialog', 'aria-label': 'Déposer dans un dossier' },
+    h('p', { class: 'drop-sheet-title' }, 'Déposer dans…'),
+    h('div', { class: 'folders-tiles' }, renderTiles({ settings: state.settings, tasks: state.tasks, view: null, withAll: false })),
+    h('p', { class: 'drop-sheet-hint' }, 'Relâchez sur un dossier, ou ailleurs pour annuler.'),
+  );
+  document.body.append(dropSheet);
+}
+
+function hideDropSheet() {
+  if (dropSheet) dropSheet.remove();
+  dropSheet = null;
 }
 
 function currentFilters() {
@@ -335,11 +409,12 @@ function renderFilters() {
 
 function renderList() {
   const filters = currentFilters();
-  const all = state.tasks;
+  const view = currentView();
+  const all = view === ALL ? state.tasks : state.tasks.filter((t) => folderOf(state.settings, t) === view);
   const tasks = sortTasks(all.filter((t) => matchesFilters(t, filters)));
   const filtered = tasks.length !== all.length;
   replaceChildren(regions.listHeader,
-    h('h1', { class: 'list-title' }, 'Toutes les tâches'),
+    h('h1', { class: 'list-title' }, view !== ALL && icon(view === INBOX ? 'inbox' : 'folder'), folderName(state.settings, view)),
     state.tasksReady && h('span', { class: 'count-pill', title: filtered ? `${tasks.length} sur ${all.length}` : null },
       filtered ? `${tasks.length} / ${all.length}` : String(tasks.length)),
   );
@@ -356,15 +431,16 @@ function renderList() {
   }
   if (!tasks.length) {
     replaceChildren(regions.list, h('div', { class: 'empty' },
-      h('p', { class: 'empty-title' }, 'Aucune tâche pour le moment'),
-      h('p', null, 'Saisissez un titre ci-dessus puis appuyez sur Entrée.'),
+      view === ALL
+        ? [h('p', { class: 'empty-title' }, 'Aucune tâche pour le moment'), h('p', null, 'Saisissez un titre ci-dessus puis appuyez sur Entrée.')]
+        : [h('p', { class: 'empty-title' }, 'Ce dossier est vide'), h('p', null, 'Glissez-y une tâche (appui long puis glisser).')],
     ));
     return;
   }
-  replaceChildren(regions.list, h('ul', { class: 'task-list' }, tasks.map(taskRow)));
+  replaceChildren(regions.list, h('ul', { class: 'task-list' }, tasks.map((t) => taskRow(t, view === ALL))));
 }
 
-function taskRow(t) {
+function taskRow(t, showFolder) {
   const done = t.status === 'done';
   const desc = (t.description || '').trim().split('\n')[0];
   const title = t.title || 'Sans titre';
@@ -382,7 +458,9 @@ function taskRow(t) {
     h('button', { class: 'task-open', type: 'button', onclick: () => openTaskDialog(ctx, t) },
       h('span', { class: 'task-title' }, title),
       desc && h('span', { class: 'task-desc' }, desc),
-      badges.length > 0 && h('span', { class: 'badges' }, badges),
+      (badges.length > 0 || showFolder) && h('span', { class: 'badges' },
+        showFolder && h('span', { class: 'folder-label' }, icon('folder'), folderName(state.settings, folderOf(state.settings, t))),
+        badges),
     ),
   );
 }
